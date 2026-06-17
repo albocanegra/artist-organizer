@@ -16,11 +16,24 @@
 <body>
   <div id="root"></div>
 
+  <script type="importmap">
+    {
+      "scopes": {
+        "./js/": {
+          "./config.js": "./config.js?v=5.0.1",
+          "./auth.js": "./auth.js?v=5.0.1",
+          "./utils.js": "./utils.js?v=5.0.1",
+          "./spotify-api.js": "./spotify-api.js?v=5.0.1",
+          "./youtube-api.js": "./youtube-api.js?v=5.0.1",
+          "./app.js": "./app.js?v=5.0.1"
+        }
+      }
+    }
+  </script>
   <script type="module">
-    // Cache busting: Update this version when deploying
-    const VERSION = '5.0.0';
+    // Cache busting: keep in sync with importmap version suffix above
+    const VERSION = '5.0.1';
     
-    // Dynamic import with cache busting
     const { SpotifyOrganizer } = await import(`./js/app.js?v=${VERSION}`);
 
     const root = ReactDOM.createRoot(document.getElementById('root'));

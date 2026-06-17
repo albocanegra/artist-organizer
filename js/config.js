@@ -33,7 +33,7 @@ export const ALLOWED_YOUTUBE_USER_IDS = [
 // Backward-compatible alias
 export const ALLOWED_USER_IDS = ALLOWED_SPOTIFY_USER_IDS;
 
-export const APP_VERSION = 'v5.0.0';
+export const APP_VERSION = 'v5.0.1';
 
 // Playlist naming conventions (shared across providers)
 export const CATEGORY_PREFIX = '🎸 ArtistOrganizer/';

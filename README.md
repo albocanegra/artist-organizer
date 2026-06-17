@@ -44,8 +44,8 @@ Each provider keeps its own data — Spotify categories and YouTube categories a
 ### 1. Spotify (optional)
 
 1. Create an app at [developer.spotify.com](https://developer.spotify.com/dashboard)
-2. Add your GitHub Pages URL as a redirect URI
-3. Set `SPOTIFY_CLIENT_ID` and `SPOTIFY_REDIRECT_URI` in `js/config.js`
+2. Add this redirect URI: `https://albocanegra.github.io/spotify-organizer` (no trailing slash)
+3. Set `SPOTIFY_CLIENT_ID` in `js/config.js`
 
 ### 2. YouTube Music (optional)
 
@@ -53,16 +53,30 @@ Each provider keeps its own data — Spotify categories and YouTube categories a
 2. Enable **YouTube Data API v3**
 3. Configure the **OAuth consent screen**
 4. Create credentials → **OAuth client ID** → **Web application**
-5. Add your GitHub Pages URL as an authorized redirect URI
-6. Set `YOUTUBE_CLIENT_ID` and `YOUTUBE_REDIRECT_URI` in `js/config.js`
+5. Add this **exact** authorized redirect URI (no trailing slash):
+
+   ```
+   https://albocanegra.github.io/spotify-organizer
+   ```
+
+   The app auto-detects the redirect URI from the current page URL. Google requires a character-for-character match — if you see `redirect_uri_mismatch`, compare this URI to what is listed in [Google Cloud Console → Credentials](https://console.cloud.google.com/apis/credentials).
+
+6. Set `YOUTUBE_CLIENT_ID` in `js/config.js`
 
 You only need the **Client ID** — do not put the client secret in `config.js`. This app uses PKCE in the browser, same as Spotify.
 
-For local development, add your local URL (e.g. `http://localhost:5500`) as a redirect URI in both Spotify and Google, and update the matching values in `config.js`.
+For local development, add your local URL as a redirect URI too (e.g. `http://localhost:5500`) and open the app from that same origin.
 
 ### 3. Deploy
 
 Deploy to GitHub Pages. At least one provider must be configured for login to work.
+
+**On every release**, bump the cache version in two places (GitHub Pages caches JS aggressively; only `app.js` was busted before v5.0.1, which caused stale `config.js` loads):
+
+1. `APP_CACHE_VERSION` in `index.html` — also auto-generates the import map for all modules listed in `JS_MODULES`
+2. `APP_VERSION` in `js/config.js` — shown in the UI
+
+When adding a new file under `js/`, add its filename to the `JS_MODULES` array in `index.html`.
 
 ## Security
 

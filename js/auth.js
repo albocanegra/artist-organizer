@@ -4,10 +4,8 @@ import { generateRandomString, sha256, base64encode } from './utils.js';
 import {
   PROVIDERS,
   SPOTIFY_CLIENT_ID,
-  SPOTIFY_REDIRECT_URI,
   SPOTIFY_SCOPES,
   YOUTUBE_CLIENT_ID,
-  YOUTUBE_REDIRECT_URI,
   YOUTUBE_SCOPES,
 } from './config.js';
 
@@ -16,25 +14,34 @@ const PROVIDER_CONFIG = {
     authUrl: 'https://accounts.spotify.com/authorize',
     tokenUrl: 'https://accounts.spotify.com/api/token',
     clientId: SPOTIFY_CLIENT_ID,
-    redirectUri: SPOTIFY_REDIRECT_URI,
     scope: SPOTIFY_SCOPES,
     tokenKey: 'spotify_access_token',
     expiryKey: 'spotify_token_expiry',
     refreshKey: 'spotify_refresh_token',
-    providerKey: 'auth_provider',
   },
   [PROVIDERS.YOUTUBE]: {
     authUrl: 'https://accounts.google.com/o/oauth2/v2/auth',
     tokenUrl: 'https://oauth2.googleapis.com/token',
     clientId: YOUTUBE_CLIENT_ID,
-    redirectUri: YOUTUBE_REDIRECT_URI,
     scope: YOUTUBE_SCOPES,
     tokenKey: 'youtube_access_token',
     expiryKey: 'youtube_token_expiry',
     refreshKey: 'youtube_refresh_token',
-    providerKey: 'auth_provider',
   },
 };
+
+// Derive redirect URI from the current page so it matches Google/Spotify console entries.
+// Normalized form: no query/hash, no index.html, no trailing slash (except site root).
+export function getRedirectUri() {
+  const url = new URL(window.location.href);
+  url.search = '';
+  url.hash = '';
+  url.pathname = url.pathname.replace(/\/index\.html$/i, '');
+  if (url.pathname.length > 1 && url.pathname.endsWith('/')) {
+    url.pathname = url.pathname.slice(0, -1);
+  }
+  return `${url.origin}${url.pathname}`;
+}
 
 function getProviderConfig(provider) {
   const config = PROVIDER_CONFIG[provider];
@@ -68,10 +75,13 @@ export async function initiateLogin(provider) {
   localStorage.setItem('code_verifier', codeVerifier);
   localStorage.setItem('oauth_provider', provider);
 
+  const redirectUri = getRedirectUri();
+  localStorage.setItem('oauth_redirect_uri', redirectUri);
+
   const params = {
     client_id: config.clientId,
     response_type: 'code',
-    redirect_uri: config.redirectUri,
+    redirect_uri: redirectUri,
     scope: config.scope,
     code_challenge_method: 'S256',
     code_challenge: codeChallenge,
@@ -90,6 +100,7 @@ export async function initiateLogin(provider) {
 export async function exchangeCodeForToken(code, provider) {
   const config = getProviderConfig(provider);
   const codeVerifier = localStorage.getItem('code_verifier');
+  const redirectUri = localStorage.getItem('oauth_redirect_uri') || getRedirectUri();
 
   const response = await fetch(config.tokenUrl, {
     method: 'POST',
@@ -98,7 +109,7 @@ export async function exchangeCodeForToken(code, provider) {
       client_id: config.clientId,
       grant_type: 'authorization_code',
       code,
-      redirect_uri: config.redirectUri,
+      redirect_uri: redirectUri,
       code_verifier: codeVerifier,
     }),
   });
@@ -116,6 +127,7 @@ export async function exchangeCodeForToken(code, provider) {
 
     localStorage.removeItem('code_verifier');
     localStorage.removeItem('oauth_provider');
+    localStorage.removeItem('oauth_redirect_uri');
     window.history.replaceState({}, document.title, window.location.pathname);
 
     return data.access_token;
@@ -151,5 +163,6 @@ export function clearAuth(provider) {
     localStorage.removeItem('auth_provider');
     localStorage.removeItem('code_verifier');
     localStorage.removeItem('oauth_provider');
+    localStorage.removeItem('oauth_redirect_uri');
   }
 }

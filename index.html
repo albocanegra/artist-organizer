@@ -16,25 +16,39 @@
 <body>
   <div id="root"></div>
 
-  <script type="importmap">
-    {
-      "scopes": {
-        "./js/": {
-          "./config.js": "./config.js?v=5.0.1",
-          "./auth.js": "./auth.js?v=5.0.1",
-          "./utils.js": "./utils.js?v=5.0.1",
-          "./spotify-api.js": "./spotify-api.js?v=5.0.1",
-          "./youtube-api.js": "./youtube-api.js?v=5.0.1",
-          "./app.js": "./app.js?v=5.0.1"
-        }
-      }
-    }
+  <!--
+    DEPLOY CHECKLIST — bump on every release:
+      1. APP_CACHE_VERSION below
+      2. APP_VERSION in js/config.js (UI label, e.g. 'v5.0.1')
+    When adding a new js/ module, add its filename to JS_MODULES so it is cache-busted.
+  -->
+  <script>
+    const APP_CACHE_VERSION = '5.0.2';
+
+    const JS_MODULES = [
+      'config.js',
+      'utils.js',
+      'auth.js',
+      'spotify-api.js',
+      'youtube-api.js',
+      'app.js',
+    ];
+
+    const scopeMap = Object.fromEntries(
+      JS_MODULES.map(name => [`./${name}`, `./${name}?v=${APP_CACHE_VERSION}`])
+    );
+
+    const importMapEl = document.createElement('script');
+    importMapEl.type = 'importmap';
+    importMapEl.textContent = JSON.stringify({ scopes: { './js/': scopeMap } });
+    document.head.appendChild(importMapEl);
+
+    window.__APP_CACHE_VERSION__ = APP_CACHE_VERSION;
   </script>
   <script type="module">
-    // Cache busting: keep in sync with importmap version suffix above
-    const VERSION = '5.0.1';
-    
-    const { SpotifyOrganizer } = await import(`./js/app.js?v=${VERSION}`);
+    const { SpotifyOrganizer } = await import(
+      `./js/app.js?v=${window.__APP_CACHE_VERSION__}`
+    );
 
     const root = ReactDOM.createRoot(document.getElementById('root'));
     root.render(React.createElement(SpotifyOrganizer));

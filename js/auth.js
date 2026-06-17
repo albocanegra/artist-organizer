@@ -1,77 +1,155 @@
-// Spotify OAuth authentication
+// OAuth authentication (Spotify + YouTube Music via Google)
 
 import { generateRandomString, sha256, base64encode } from './utils.js';
-import { CLIENT_ID, REDIRECT_URI, SCOPES } from './config.js';
+import {
+  PROVIDERS,
+  SPOTIFY_CLIENT_ID,
+  SPOTIFY_REDIRECT_URI,
+  SPOTIFY_SCOPES,
+  YOUTUBE_CLIENT_ID,
+  YOUTUBE_REDIRECT_URI,
+  YOUTUBE_SCOPES,
+} from './config.js';
 
-export async function initiateLogin() {
+const PROVIDER_CONFIG = {
+  [PROVIDERS.SPOTIFY]: {
+    authUrl: 'https://accounts.spotify.com/authorize',
+    tokenUrl: 'https://accounts.spotify.com/api/token',
+    clientId: SPOTIFY_CLIENT_ID,
+    redirectUri: SPOTIFY_REDIRECT_URI,
+    scope: SPOTIFY_SCOPES,
+    tokenKey: 'spotify_access_token',
+    expiryKey: 'spotify_token_expiry',
+    refreshKey: 'spotify_refresh_token',
+    providerKey: 'auth_provider',
+  },
+  [PROVIDERS.YOUTUBE]: {
+    authUrl: 'https://accounts.google.com/o/oauth2/v2/auth',
+    tokenUrl: 'https://oauth2.googleapis.com/token',
+    clientId: YOUTUBE_CLIENT_ID,
+    redirectUri: YOUTUBE_REDIRECT_URI,
+    scope: YOUTUBE_SCOPES,
+    tokenKey: 'youtube_access_token',
+    expiryKey: 'youtube_token_expiry',
+    refreshKey: 'youtube_refresh_token',
+    providerKey: 'auth_provider',
+  },
+};
+
+function getProviderConfig(provider) {
+  const config = PROVIDER_CONFIG[provider];
+  if (!config) throw new Error(`Unknown provider: ${provider}`);
+  return config;
+}
+
+export function getActiveProvider() {
+  return localStorage.getItem('auth_provider');
+}
+
+export function setActiveProvider(provider) {
+  localStorage.setItem('auth_provider', provider);
+}
+
+export async function initiateLogin(provider) {
+  const config = getProviderConfig(provider);
+
+  if (!config.clientId) {
+    throw new Error(
+      provider === PROVIDERS.YOUTUBE
+        ? 'YouTube Client ID is not configured. Add YOUTUBE_CLIENT_ID in js/config.js'
+        : 'Spotify Client ID is not configured'
+    );
+  }
+
   const codeVerifier = generateRandomString(64);
   const hashed = await sha256(codeVerifier);
   const codeChallenge = base64encode(hashed);
-  
-  localStorage.setItem('code_verifier', codeVerifier);
 
-  const authUrl = new URL('https://accounts.spotify.com/authorize');
-  authUrl.search = new URLSearchParams({
-    client_id: CLIENT_ID,
+  localStorage.setItem('code_verifier', codeVerifier);
+  localStorage.setItem('oauth_provider', provider);
+
+  const params = {
+    client_id: config.clientId,
     response_type: 'code',
-    redirect_uri: REDIRECT_URI,
-    scope: SCOPES,
+    redirect_uri: config.redirectUri,
+    scope: config.scope,
     code_challenge_method: 'S256',
     code_challenge: codeChallenge,
-  }).toString();
+  };
 
+  if (provider === PROVIDERS.YOUTUBE) {
+    params.access_type = 'offline';
+    params.prompt = 'consent select_account';
+  }
+
+  const authUrl = new URL(config.authUrl);
+  authUrl.search = new URLSearchParams(params).toString();
   window.location.href = authUrl.toString();
 }
 
-export async function exchangeCodeForToken(code) {
+export async function exchangeCodeForToken(code, provider) {
+  const config = getProviderConfig(provider);
   const codeVerifier = localStorage.getItem('code_verifier');
 
-  const response = await fetch('https://accounts.spotify.com/api/token', {
+  const response = await fetch(config.tokenUrl, {
     method: 'POST',
     headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
     body: new URLSearchParams({
-      client_id: CLIENT_ID,
+      client_id: config.clientId,
       grant_type: 'authorization_code',
       code,
-      redirect_uri: REDIRECT_URI,
+      redirect_uri: config.redirectUri,
       code_verifier: codeVerifier,
     }),
   });
 
   const data = await response.json();
-  
+
   if (data.access_token) {
     const expiryTime = Date.now() + (data.expires_in * 1000);
-    localStorage.setItem('spotify_access_token', data.access_token);
-    localStorage.setItem('spotify_token_expiry', expiryTime.toString());
+    localStorage.setItem(config.tokenKey, data.access_token);
+    localStorage.setItem(config.expiryKey, expiryTime.toString());
     if (data.refresh_token) {
-      localStorage.setItem('spotify_refresh_token', data.refresh_token);
+      localStorage.setItem(config.refreshKey, data.refresh_token);
     }
-    
-    // Clean up URL
+    setActiveProvider(provider);
+
+    localStorage.removeItem('code_verifier');
+    localStorage.removeItem('oauth_provider');
     window.history.replaceState({}, document.title, window.location.pathname);
-    
+
     return data.access_token;
   }
-  
-  throw new Error('Failed to get access token');
+
+  throw new Error(data.error_description || data.error || 'Failed to get access token');
 }
 
-export function getStoredToken() {
-  const token = localStorage.getItem('spotify_access_token');
-  const expiry = localStorage.getItem('spotify_token_expiry');
-  
-  if (token && expiry && Date.now() < parseInt(expiry)) {
+export function getStoredToken(provider) {
+  const config = getProviderConfig(provider);
+  const token = localStorage.getItem(config.tokenKey);
+  const expiry = localStorage.getItem(config.expiryKey);
+
+  if (token && expiry && Date.now() < parseInt(expiry, 10)) {
     return token;
   }
-  
+
   return null;
 }
 
-export function clearAuth() {
-  localStorage.removeItem('spotify_access_token');
-  localStorage.removeItem('spotify_token_expiry');
-  localStorage.removeItem('spotify_refresh_token');
-  localStorage.removeItem('code_verifier');
+export function clearAuth(provider) {
+  if (provider === PROVIDERS.SPOTIFY || !provider) {
+    localStorage.removeItem('spotify_access_token');
+    localStorage.removeItem('spotify_token_expiry');
+    localStorage.removeItem('spotify_refresh_token');
+  }
+  if (provider === PROVIDERS.YOUTUBE || !provider) {
+    localStorage.removeItem('youtube_access_token');
+    localStorage.removeItem('youtube_token_expiry');
+    localStorage.removeItem('youtube_refresh_token');
+  }
+  if (!provider) {
+    localStorage.removeItem('auth_provider');
+    localStorage.removeItem('code_verifier');
+    localStorage.removeItem('oauth_provider');
+  }
 }
-

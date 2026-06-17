@@ -1,14 +1,33 @@
 // Main React Application Component
 
-import { APP_VERSION, ALLOWED_USER_IDS } from './config.js';
-import { initiateLogin, exchangeCodeForToken, getStoredToken, clearAuth } from './auth.js';
-import * as spotify from './spotify-api.js';
+import { APP_VERSION, PROVIDERS, ALLOWED_SPOTIFY_USER_IDS, ALLOWED_YOUTUBE_USER_IDS } from './config.js';
+import {
+  initiateLogin,
+  exchangeCodeForToken,
+  getStoredToken,
+  getActiveProvider,
+  setActiveProvider,
+  clearAuth,
+} from './auth.js';
+import * as spotifyApi from './spotify-api.js';
+import * as youtubeApi from './youtube-api.js';
 
 const { useState, useEffect, createElement: h } = React;
 
+const PROVIDER_LABELS = {
+  [PROVIDERS.SPOTIFY]: 'Spotify',
+  [PROVIDERS.YOUTUBE]: 'YouTube Music',
+};
+
+function getApi(provider) {
+  return provider === PROVIDERS.YOUTUBE ? youtubeApi : spotifyApi;
+}
+
 export function SpotifyOrganizer() {
+  const [provider, setProvider] = useState(null);
   const [accessToken, setAccessToken] = useState(null);
   const [userId, setUserId] = useState(null);
+  const [userDisplayName, setUserDisplayName] = useState(null);
   const [artists, setArtists] = useState([]);
   const [categories, setCategories] = useState({});
   const [categoryPlaylists, setCategoryPlaylists] = useState({});
@@ -49,14 +68,24 @@ export function SpotifyOrganizer() {
   useEffect(() => {
     const params = new URLSearchParams(window.location.search);
     const code = params.get('code');
-    
+
     if (code) {
-      handleOAuthCallback(code);
+      const oauthProvider = localStorage.getItem('oauth_provider') || getActiveProvider() || PROVIDERS.SPOTIFY;
+      handleOAuthCallback(code, oauthProvider);
     } else {
-      const token = getStoredToken();
-      if (token) {
-        setAccessToken(token);
-        initializeApp(token);
+      const savedProvider = getActiveProvider();
+      const providerToUse = savedProvider || (
+        getStoredToken(PROVIDERS.SPOTIFY) ? PROVIDERS.SPOTIFY : null
+      );
+
+      if (providerToUse) {
+        const token = getStoredToken(providerToUse);
+        if (token) {
+          if (!savedProvider) setActiveProvider(providerToUse);
+          setProvider(providerToUse);
+          setAccessToken(token);
+          initializeApp(token, providerToUse);
+        }
       }
     }
   }, []);
@@ -70,9 +99,10 @@ export function SpotifyOrganizer() {
 
   // Background save helper - updates UI immediately, syncs in background
   const saveInBackground = async (newCategories) => {
+    const api = getApi(provider);
     setIsSaving(true);
     try {
-      await spotify.saveCategoriesToSpotify(accessToken, userId, newCategories);
+      await api.saveCategoriesToSpotify(accessToken, userId, newCategories);
     } catch (err) {
       console.error('Background save failed:', err);
       showStatus('⚠️ Sync failed - changes may not be saved', 4000);
@@ -80,13 +110,14 @@ export function SpotifyOrganizer() {
     setIsSaving(false);
   };
 
-  const handleOAuthCallback = async (code) => {
+  const handleOAuthCallback = async (code, oauthProvider) => {
     setLoading(true);
     setLoadingMessage('Authenticating...');
     try {
-      const token = await exchangeCodeForToken(code);
+      const token = await exchangeCodeForToken(code, oauthProvider);
+      setProvider(oauthProvider);
       setAccessToken(token);
-      await initializeApp(token);
+      await initializeApp(token, oauthProvider);
     } catch (err) {
       console.error('Auth error:', err);
       showStatus('✗ Authentication failed');
@@ -94,35 +125,38 @@ export function SpotifyOrganizer() {
     setLoading(false);
   };
 
-  const initializeApp = async (token) => {
+  const initializeApp = async (token, activeProvider) => {
+    const api = getApi(activeProvider);
     setLoading(true);
     try {
       setLoadingMessage('Getting user info...');
-      const userData = await spotify.getCurrentUser(token);
-      
-      // Access control: Check if user is allowed (if restriction is enabled)
-      if (ALLOWED_USER_IDS.length > 0 && !ALLOWED_USER_IDS.includes(userData.id)) {
+      const userData = await api.getCurrentUser(token);
+
+      const allowedIds = activeProvider === PROVIDERS.YOUTUBE
+        ? ALLOWED_YOUTUBE_USER_IDS
+        : ALLOWED_SPOTIFY_USER_IDS;
+
+      if (allowedIds.length > 0 && !allowedIds.includes(userData.id)) {
         setLoading(false);
-        clearAuth();
+        clearAuth(activeProvider);
         showStatus('⛔ Access denied - you are not authorized to use this app', 0);
         return;
       }
-      
+
       setUserId(userData.id);
-      
-      // Check for old format and offer migration
+      setUserDisplayName(userData.display_name || null);
+
       setLoadingMessage('Checking for existing data...');
-      const migration = await spotify.migrateFromOldFormat(token, userData.id);
-      
+      const migration = await api.migrateFromOldFormat(token, userData.id);
+
       if (migration) {
         setMigrationData(migration);
         setShowMigration(true);
         setLoading(false);
         return;
       }
-      
-      // Load data normally
-      await loadData(token, userData.id);
+
+      await loadData(token, userData.id, activeProvider);
     } catch (err) {
       console.error('Init error:', err);
       showStatus('✗ Failed to load data');
@@ -130,9 +164,10 @@ export function SpotifyOrganizer() {
     setLoading(false);
   };
 
-  const loadData = async (token, uid) => {
+  const loadData = async (token, uid, activeProvider) => {
+    const api = getApi(activeProvider);
     setLoadingMessage('Loading categories...');
-    let loadedCategories = await spotify.loadCategoriesFromSpotify(token, uid);
+    let loadedCategories = await api.loadCategoriesFromSpotify(token, uid);
     
     // Check if data was corrupted
     if (loadedCategories._corrupted) {
@@ -143,11 +178,11 @@ export function SpotifyOrganizer() {
     }
     
     setLoadingMessage('Loading followed artists...');
-    const allArtists = await spotify.getFollowedArtists(token);
+    const allArtists = await api.getFollowedArtists(token);
     setArtists(allArtists);
     
     setLoadingMessage('Loading category playlists...');
-    const playlists = await spotify.getCategoryPlaylists(token, uid);
+    const playlists = await api.getCategoryPlaylists(token, uid);
     setCategoryPlaylists(playlists);
     
     // Find uncategorized artists
@@ -168,13 +203,13 @@ export function SpotifyOrganizer() {
       
       // Save updated categories
       setLoadingMessage('Saving changes...');
-      await spotify.saveCategoriesToSpotify(token, uid, loadedCategories);
+      await api.saveCategoriesToSpotify(token, uid, loadedCategories);
     }
     
     // Ensure Uncategorized playlist exists
     if (!playlists['Uncategorized']) {
       setLoadingMessage('Creating Uncategorized playlist...');
-      const playlist = await spotify.createCategoryPlaylist(token, uid, 'Uncategorized');
+      const playlist = await api.createCategoryPlaylist(token, uid, 'Uncategorized');
       playlists['Uncategorized'] = playlist.id;
       setCategoryPlaylists(playlists);
     }
@@ -189,52 +224,48 @@ export function SpotifyOrganizer() {
     });
     
     if (hasChanges) {
-      await spotify.saveCategoriesToSpotify(token, uid, loadedCategories);
+      await api.saveCategoriesToSpotify(token, uid, loadedCategories);
     }
     
     setCategories(loadedCategories);
   };
 
   const handleMigration = async (shouldMigrate) => {
+    const api = getApi(provider);
     setShowMigration(false);
     setLoading(true);
-    
+
     try {
       if (shouldMigrate && migrationData) {
         setLoadingMessage('Migrating data to new format...');
-        
-        // Save categories in new format
-        await spotify.saveCategoriesToSpotify(accessToken, userId, migrationData.categories);
-        
-        // Create visual category playlists
+
+        await api.saveCategoriesToSpotify(accessToken, userId, migrationData.categories);
+
         const playlists = {};
         for (const categoryName of Object.keys(migrationData.categories)) {
           setLoadingMessage(`Creating playlist: ${categoryName}...`);
-          const playlist = await spotify.createCategoryPlaylist(accessToken, userId, categoryName);
+          const playlist = await api.createCategoryPlaylist(accessToken, userId, categoryName);
           playlists[categoryName] = playlist.id;
         }
         setCategoryPlaylists(playlists);
         setCategories(migrationData.categories);
-        
-        // Delete old playlists
+
         setLoadingMessage('Cleaning up old playlists...');
-        await spotify.deleteOldPlaylists(accessToken, migrationData.oldPlaylists);
-        
+        await api.deleteOldPlaylists(accessToken, migrationData.oldPlaylists);
+
         showStatus('✓ Migration complete!');
-        
-        // Now load the rest
+
         setLoadingMessage('Loading artists...');
-        const allArtists = await spotify.getFollowedArtists(accessToken);
+        const allArtists = await api.getFollowedArtists(accessToken);
         setArtists(allArtists);
       } else {
-        // User chose not to migrate, start fresh
-        await loadData(accessToken, userId);
+        await loadData(accessToken, userId, provider);
       }
     } catch (err) {
       console.error('Migration error:', err);
       showStatus('✗ Migration failed');
     }
-    
+
     setLoading(false);
   };
 
@@ -252,8 +283,9 @@ export function SpotifyOrganizer() {
     
     // Background: Create playlist and save data
     (async () => {
+      const api = getApi(provider);
       try {
-        const playlist = await spotify.createCategoryPlaylist(accessToken, userId, categoryName);
+        const playlist = await api.createCategoryPlaylist(accessToken, userId, categoryName);
         setCategoryPlaylists(prev => ({ ...prev, [categoryName]: playlist.id }));
         await saveInBackground(updatedCategories);
       } catch (err) {
@@ -286,10 +318,11 @@ export function SpotifyOrganizer() {
     
     // Background: Delete playlist and save data
     (async () => {
+      const api = getApi(provider);
       try {
         await saveInBackground(updatedCategories);
         if (playlistId) {
-          await spotify.deleteCategoryPlaylist(accessToken, playlistId);
+          await api.deleteCategoryPlaylist(accessToken, playlistId);
         }
       } catch (err) {
         console.error('Error deleting category:', err);
@@ -313,34 +346,34 @@ export function SpotifyOrganizer() {
   };
 
   const handleReset = async () => {
+    const api = getApi(provider);
     setShowResetConfirm(false);
     setLoading(true);
     setLoadingMessage('Resetting all data...');
-    
+
     try {
-      await spotify.resetAllData(accessToken, userId);
+      await api.resetAllData(accessToken, userId);
       setCategories({});
       setCategoryPlaylists({});
-      
-      // Reload fresh data
-      await loadData(accessToken, userId);
+
+      await loadData(accessToken, userId, provider);
       showStatus('✓ Reset complete');
     } catch (err) {
       console.error('Reset error:', err);
       showStatus('✗ Reset failed');
     }
-    
+
     setLoading(false);
   };
 
-  const syncWithSpotify = async () => {
-    if (!accessToken || !userId) return;
-    
+  const syncWithProvider = async () => {
+    if (!accessToken || !userId || !provider) return;
+
     setSyncing(true);
     showStatus('🔄 Syncing...', 0);
-    
+
     try {
-      await loadData(accessToken, userId);
+      await loadData(accessToken, userId, provider);
       showStatus('✓ Sync complete!');
     } catch (err) {
       console.error('Sync error:', err);
@@ -376,13 +409,27 @@ export function SpotifyOrganizer() {
   };
 
   const handleLogout = () => {
-    clearAuth();
+    clearAuth(provider);
+    setProvider(null);
     setAccessToken(null);
     setUserId(null);
+    setUserDisplayName(null);
     setArtists([]);
     setCategories({});
     setCategoryPlaylists({});
   };
+
+  const getArtistUrl = (artist) => {
+    if (provider === PROVIDERS.YOUTUBE) {
+      return artist.external_urls?.youtube || `https://music.youtube.com/channel/${artist.id}`;
+    }
+    return artist.external_urls?.spotify;
+  };
+
+  const getArtistLinkLabel = () =>
+    provider === PROVIDERS.YOUTUBE ? '🔗 Open in YouTube Music' : '🔗 Open in Spotify';
+
+  const providerLabel = provider ? PROVIDER_LABELS[provider] : '';
 
   // ============================================
   // RENDER: Reset Confirmation Dialog
@@ -445,21 +492,32 @@ export function SpotifyOrganizer() {
   // ============================================
   if (!accessToken) {
     return h('div', { className: 'min-h-screen bg-gradient-to-br from-green-900 via-black to-black flex items-center justify-center p-4' },
+      statusMessage && h('div', { className: 'fixed top-4 right-4 bg-gray-900 text-white px-4 py-2 rounded-lg shadow-lg z-50 border border-gray-700' },
+        statusMessage
+      ),
       h('div', { className: 'bg-gray-900 rounded-lg p-8 max-w-md w-full text-center shadow-2xl' },
         h('div', { className: 'text-6xl mb-4' }, '🎸'),
-        h('h1', { className: 'text-3xl font-bold text-white mb-2' }, 'Spotify Artist Organizer'),
+        h('h1', { className: 'text-3xl font-bold text-white mb-2' }, 'Artist Organizer'),
         h('p', { className: 'text-gray-400 mb-6' }, 'Organize your followed artists into custom categories'),
         h('div', { className: 'bg-gray-800 border border-gray-700 rounded p-4 mb-6 text-left text-sm' },
-          h('p', { className: 'text-gray-300 mb-2' }, 'Connect your Spotify account to start organizing your followed artists into custom categories.'),
-          h('p', { className: 'text-green-400 text-xs font-semibold mb-2' }, '✓ Categories stored in Spotify (syncs everywhere)'),
+          h('p', { className: 'text-gray-300 mb-2' }, 'Choose a music service to connect. Categories sync via private playlists in your account.'),
+          h('p', { className: 'text-green-400 text-xs font-semibold mb-2' }, '✓ Syncs across all your devices'),
           h('p', { className: 'text-green-400 text-xs font-semibold mb-2' }, '✓ Clean folder structure in your playlists'),
           h('p', { className: 'text-gray-400 text-xs mb-2' }, 'Your data is stored privately in hidden playlists.'),
           h('p', { className: 'text-gray-500 text-xs text-right' }, APP_VERSION)
         ),
         h('button', {
-          onClick: initiateLogin,
-          className: 'bg-green-500 hover:bg-green-600 text-white font-semibold py-3 px-6 rounded-full transition'
-        }, 'Connect with Spotify')
+          onClick: () => initiateLogin(PROVIDERS.SPOTIFY).catch(err => showStatus(`✗ ${err.message}`)),
+          className: 'w-full bg-green-500 hover:bg-green-600 text-white font-semibold py-3 px-6 rounded-full transition mb-3'
+        }, 'Connect with Spotify'),
+        h('button', {
+          onClick: () => initiateLogin(PROVIDERS.YOUTUBE).catch(err => showStatus(`✗ ${err.message}`)),
+          className: 'w-full bg-red-600 hover:bg-red-700 text-white font-semibold py-3 px-6 rounded-full transition'
+        }, 'Connect with YouTube Music'),
+        h('p', { className: 'text-gray-500 text-xs mt-4' },
+          'YouTube Music uses your subscribed channels as artists. ',
+          'If you have multiple YouTube profiles, pick your music-only channel when Google asks.'
+        )
       )
     );
   }
@@ -500,6 +558,10 @@ export function SpotifyOrganizer() {
         h('div', { className: 'flex items-center gap-3' },
           h('div', { className: 'text-4xl' }, '🎸'),
           h('h1', { className: 'text-2xl font-bold text-white hidden sm:block' }, 'Artist Organizer'),
+          provider === PROVIDERS.YOUTUBE && userDisplayName && h('span', {
+            className: 'text-gray-400 text-sm hidden md:inline',
+            title: `Channel ID: ${userId}`
+          }, `📺 ${userDisplayName}`),
           h('span', { className: 'bg-green-500 text-black px-3 py-1 rounded-full text-sm font-semibold' }, `${artists.length}`),
           isSaving && h('span', { className: 'text-yellow-400 text-sm animate-pulse' }, '💾')
         ),
@@ -550,10 +612,10 @@ export function SpotifyOrganizer() {
               // Sync & Reset
               h('div', { className: 'p-1 border-b border-gray-700' },
                 h('button', {
-                  onClick: () => { syncWithSpotify(); setShowMenu(false); },
+                  onClick: () => { syncWithProvider(); setShowMenu(false); },
                   disabled: syncing,
                   className: 'w-full text-left px-3 py-2 text-blue-400 hover:bg-gray-700 rounded text-sm disabled:opacity-50'
-                }, syncing ? '🔄 Syncing...' : '🔄 Sync with Spotify'),
+                }, syncing ? '🔄 Syncing...' : `🔄 Sync with ${providerLabel}`),
                 h('button', {
                   onClick: () => { setShowResetConfirm(true); setShowMenu(false); },
                   className: 'w-full text-left px-3 py-2 text-red-400 hover:bg-gray-700 rounded text-sm'
@@ -561,6 +623,9 @@ export function SpotifyOrganizer() {
               ),
               // Account
               h('div', { className: 'p-1' },
+                provider === PROVIDERS.YOUTUBE && userDisplayName && h('div', {
+                  className: 'px-3 py-2 text-gray-400 text-xs border-b border-gray-700 mb-1'
+                }, `Connected: ${userDisplayName}`),
                 h('button', {
                   onClick: () => { handleLogout(); setShowMenu(false); },
                   className: 'w-full text-left px-3 py-2 text-gray-300 hover:bg-gray-700 rounded text-sm'
@@ -692,11 +757,11 @@ export function SpotifyOrganizer() {
                           }),
                           h('p', { className: 'text-white font-semibold text-sm mb-1 truncate' }, artist.name),
                           h('a', {
-                            href: artist.external_urls.spotify,
+                            href: getArtistUrl(artist),
                             target: '_blank',
                             rel: 'noopener noreferrer',
                             className: 'block bg-green-500 hover:bg-green-600 text-black text-xs py-1 px-2 rounded text-center mb-2'
-                          }, '🔗 Open in Spotify'),
+                          }, getArtistLinkLabel()),
                             h('select', {
                               value: categoryName,
                               onChange: (e) => moveArtist(artist.id, categoryName, e.target.value),

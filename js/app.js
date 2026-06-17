@@ -23,7 +23,7 @@ function getApi(provider) {
   return provider === PROVIDERS.YOUTUBE ? youtubeApi : spotifyApi;
 }
 
-export function SpotifyOrganizer() {
+export function ArtistOrganizer() {
   const [provider, setProvider] = useState(null);
   const [accessToken, setAccessToken] = useState(null);
   const [userId, setUserId] = useState(null);

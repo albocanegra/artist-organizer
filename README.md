@@ -2,7 +2,7 @@
 
 Organize your followed artists into custom categories. Connect with **Spotify** or **YouTube Music**.
 
-**Live app:** https://albocanegra.github.io/spotify-organizer
+**Live app:** https://albocanegra.github.io/artist-organizer
 
 ## Features
 
@@ -44,7 +44,7 @@ Each provider keeps its own data — Spotify categories and YouTube categories a
 ### 1. Spotify (optional)
 
 1. Create an app at [developer.spotify.com](https://developer.spotify.com/dashboard)
-2. Add this redirect URI: `https://albocanegra.github.io/spotify-organizer` (no trailing slash)
+2. Add this redirect URI: `https://albocanegra.github.io/artist-organizer` (no trailing slash)
 3. Set `SPOTIFY_CLIENT_ID` in `js/config.js`
 
 ### 2. YouTube Music (optional)
@@ -72,7 +72,9 @@ For local development, add your local URL as a redirect URI too (e.g. `http://lo
 
 ### 3. Deploy
 
-Deploy to GitHub Pages. At least one provider must be configured for login to work.
+Deploy to GitHub Pages from the `main` branch. At least one provider must be configured for login to work.
+
+The site URL is `https://<username>.github.io/<repo-name>/` — if you rename the repo, update `REDIRECT_URI` in `js/config.js` and add the new URI in the Spotify Developer Dashboard.
 
 **On every release**, bump the cache version in two places (GitHub Pages caches JS aggressively; only `app.js` was busted before v5.0.1, which caused stale `config.js` loads):
 

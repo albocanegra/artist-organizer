@@ -1,4 +1,4 @@
-// Utility functions for the Spotify Artist Organizer
+// Utility functions for Artist Organizer
 
 export function generateRandomString(length) {
   const possible = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789';

@@ -23,7 +23,7 @@
     When adding a new js/ module, add its filename to JS_MODULES so it is cache-busted.
   -->
   <script>
-    const APP_CACHE_VERSION = '5.0.3';
+    const APP_CACHE_VERSION = '5.1.0';
 
     const JS_MODULES = [
       'config.js',
@@ -46,12 +46,12 @@
     window.__APP_CACHE_VERSION__ = APP_CACHE_VERSION;
   </script>
   <script type="module">
-    const { SpotifyOrganizer } = await import(
+    const { ArtistOrganizer } = await import(
       `./js/app.js?v=${window.__APP_CACHE_VERSION__}`
     );
 
     const root = ReactDOM.createRoot(document.getElementById('root'));
-    root.render(React.createElement(SpotifyOrganizer));
+    root.render(React.createElement(ArtistOrganizer));
   </script>
 </body>
 </html>

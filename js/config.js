@@ -11,7 +11,7 @@ export const SPOTIFY_SCOPES = 'user-follow-read playlist-read-private playlist-m
 
 // Backward-compatible aliases
 export const CLIENT_ID = SPOTIFY_CLIENT_ID;
-export const REDIRECT_URI = 'https://albocanegra.github.io/spotify-organizer';
+export const REDIRECT_URI = 'https://albocanegra.github.io/artist-organizer';
 export const SCOPES = SPOTIFY_SCOPES;
 
 // --- YouTube Music (via YouTube Data API v3) ---
@@ -34,7 +34,7 @@ export const ALLOWED_YOUTUBE_USER_IDS = [
 export const ALLOWED_USER_IDS = ALLOWED_SPOTIFY_USER_IDS;
 
 // Keep in sync with APP_CACHE_VERSION in index.html
-export const APP_VERSION = 'v5.0.3';
+export const APP_VERSION = 'v5.1.0';
 
 // Playlist naming conventions (shared across providers)
 export const CATEGORY_PREFIX = '🎸 ArtistOrganizer/';

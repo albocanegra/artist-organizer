@@ -68,15 +68,18 @@ export function SpotifyOrganizer() {
   useEffect(() => {
     const params = new URLSearchParams(window.location.search);
     const code = params.get('code');
+    const isGoogleCallback = params.get('iss')?.includes('accounts.google.com');
 
-    if (code) {
-      const oauthProvider = localStorage.getItem('oauth_provider') || getActiveProvider() || PROVIDERS.SPOTIFY;
-      handleOAuthCallback(code, oauthProvider);
+    if (code && isGoogleCallback) {
+      window.history.replaceState({}, document.title, window.location.pathname);
+      showStatus('YouTube login updated — click Connect with YouTube Music again', 5000);
+    } else if (code) {
+      handleOAuthCallback(code, PROVIDERS.SPOTIFY);
     } else {
       const savedProvider = getActiveProvider();
-      const providerToUse = savedProvider || (
-        getStoredToken(PROVIDERS.SPOTIFY) ? PROVIDERS.SPOTIFY : null
-      );
+      let providerToUse = savedProvider;
+      if (!providerToUse && getStoredToken(PROVIDERS.SPOTIFY)) providerToUse = PROVIDERS.SPOTIFY;
+      if (!providerToUse && getStoredToken(PROVIDERS.YOUTUBE)) providerToUse = PROVIDERS.YOUTUBE;
 
       if (providerToUse) {
         const token = getStoredToken(providerToUse);
@@ -110,7 +113,28 @@ export function SpotifyOrganizer() {
     setIsSaving(false);
   };
 
+  const handleYouTubeLogin = async () => {
+    setLoading(true);
+    setLoadingMessage('Authenticating...');
+    try {
+      const token = await initiateLogin(PROVIDERS.YOUTUBE);
+      setProvider(PROVIDERS.YOUTUBE);
+      setAccessToken(token);
+      await initializeApp(token, PROVIDERS.YOUTUBE);
+    } catch (err) {
+      console.error('Auth error:', err);
+      showStatus('✗ Authentication failed');
+    }
+    setLoading(false);
+  };
+
   const handleOAuthCallback = async (code, oauthProvider) => {
+    if (oauthProvider === PROVIDERS.YOUTUBE) {
+      window.history.replaceState({}, document.title, window.location.pathname);
+      showStatus('✗ YouTube login failed — please try again');
+      return;
+    }
+
     setLoading(true);
     setLoadingMessage('Authenticating...');
     try {
@@ -511,7 +535,7 @@ export function SpotifyOrganizer() {
           className: 'w-full bg-green-500 hover:bg-green-600 text-white font-semibold py-3 px-6 rounded-full transition mb-3'
         }, 'Connect with Spotify'),
         h('button', {
-          onClick: () => initiateLogin(PROVIDERS.YOUTUBE).catch(err => showStatus(`✗ ${err.message}`)),
+          onClick: () => handleYouTubeLogin(),
           className: 'w-full bg-red-600 hover:bg-red-700 text-white font-semibold py-3 px-6 rounded-full transition'
         }, 'Connect with YouTube Music'),
         h('p', { className: 'text-gray-500 text-xs mt-4' },

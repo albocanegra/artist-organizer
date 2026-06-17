@@ -20,18 +20,41 @@ const PROVIDER_CONFIG = {
     refreshKey: 'spotify_refresh_token',
   },
   [PROVIDERS.YOUTUBE]: {
-    authUrl: 'https://accounts.google.com/o/oauth2/v2/auth',
-    tokenUrl: 'https://oauth2.googleapis.com/token',
     clientId: YOUTUBE_CLIENT_ID,
     scope: YOUTUBE_SCOPES,
     tokenKey: 'youtube_access_token',
     expiryKey: 'youtube_token_expiry',
-    refreshKey: 'youtube_refresh_token',
   },
 };
 
-// Derive redirect URI from the current page so it matches Google/Spotify console entries.
-// Normalized form: no query/hash, no index.html, no trailing slash (except site root).
+let googleScriptPromise = null;
+
+function getProviderConfig(provider) {
+  const config = PROVIDER_CONFIG[provider];
+  if (!config) throw new Error(`Unknown provider: ${provider}`);
+  return config;
+}
+
+function loadGoogleIdentityScript() {
+  if (window.google?.accounts?.oauth2) {
+    return Promise.resolve();
+  }
+  if (googleScriptPromise) return googleScriptPromise;
+
+  googleScriptPromise = new Promise((resolve, reject) => {
+    const script = document.createElement('script');
+    script.src = 'https://accounts.google.com/gsi/client';
+    script.async = true;
+    script.defer = true;
+    script.onload = () => resolve();
+    script.onerror = () => reject(new Error('Failed to load Google Identity Services'));
+    document.head.appendChild(script);
+  });
+
+  return googleScriptPromise;
+}
+
+// Derive redirect URI from the current page (Spotify OAuth).
 export function getRedirectUri() {
   const url = new URL(window.location.href);
   url.search = '';
@@ -43,18 +66,69 @@ export function getRedirectUri() {
   return `${url.origin}${url.pathname}`;
 }
 
-function getProviderConfig(provider) {
-  const config = PROVIDER_CONFIG[provider];
-  if (!config) throw new Error(`Unknown provider: ${provider}`);
-  return config;
-}
-
 export function getActiveProvider() {
   return localStorage.getItem('auth_provider');
 }
 
 export function setActiveProvider(provider) {
   localStorage.setItem('auth_provider', provider);
+}
+
+function storeYouTubeToken(accessToken, expiresIn = 3599) {
+  const config = getProviderConfig(PROVIDERS.YOUTUBE);
+  const expiryTime = Date.now() + (expiresIn * 1000);
+  localStorage.setItem(config.tokenKey, accessToken);
+  localStorage.setItem(config.expiryKey, expiryTime.toString());
+  setActiveProvider(PROVIDERS.YOUTUBE);
+}
+
+// YouTube: Google Identity Services token client (no client secret, works on static sites).
+function initiateYouTubeLogin() {
+  const config = getProviderConfig(PROVIDERS.YOUTUBE);
+
+  return loadGoogleIdentityScript().then(() => new Promise((resolve, reject) => {
+    const client = google.accounts.oauth2.initTokenClient({
+      client_id: config.clientId,
+      scope: config.scope,
+      callback: (response) => {
+        if (response.error) {
+          reject(new Error(response.error_description || response.error));
+          return;
+        }
+        storeYouTubeToken(response.access_token, response.expires_in);
+        resolve(response.access_token);
+      },
+    });
+    client.requestAccessToken({ prompt: 'consent select_account' });
+  }));
+}
+
+function initiateSpotifyLogin() {
+  const config = getProviderConfig(PROVIDERS.SPOTIFY);
+
+  const codeVerifier = generateRandomString(64);
+
+  return sha256(codeVerifier).then(hashed => {
+    const codeChallenge = base64encode(hashed);
+
+    localStorage.setItem('code_verifier', codeVerifier);
+    localStorage.setItem('oauth_provider', PROVIDERS.SPOTIFY);
+
+    const redirectUri = getRedirectUri();
+    localStorage.setItem('oauth_redirect_uri', redirectUri);
+
+    const authUrl = new URL(config.authUrl);
+    authUrl.search = new URLSearchParams({
+      client_id: config.clientId,
+      response_type: 'code',
+      redirect_uri: redirectUri,
+      scope: config.scope,
+      code_challenge_method: 'S256',
+      code_challenge: codeChallenge,
+    }).toString();
+
+    window.location.href = authUrl.toString();
+  });
 }
 
 export async function initiateLogin(provider) {
@@ -68,36 +142,18 @@ export async function initiateLogin(provider) {
     );
   }
 
-  const codeVerifier = generateRandomString(64);
-  const hashed = await sha256(codeVerifier);
-  const codeChallenge = base64encode(hashed);
-
-  localStorage.setItem('code_verifier', codeVerifier);
-  localStorage.setItem('oauth_provider', provider);
-
-  const redirectUri = getRedirectUri();
-  localStorage.setItem('oauth_redirect_uri', redirectUri);
-
-  const params = {
-    client_id: config.clientId,
-    response_type: 'code',
-    redirect_uri: redirectUri,
-    scope: config.scope,
-    code_challenge_method: 'S256',
-    code_challenge: codeChallenge,
-  };
-
   if (provider === PROVIDERS.YOUTUBE) {
-    params.access_type = 'offline';
-    params.prompt = 'consent select_account';
+    return initiateYouTubeLogin();
   }
 
-  const authUrl = new URL(config.authUrl);
-  authUrl.search = new URLSearchParams(params).toString();
-  window.location.href = authUrl.toString();
+  await initiateSpotifyLogin();
 }
 
 export async function exchangeCodeForToken(code, provider) {
+  if (provider === PROVIDERS.YOUTUBE) {
+    throw new Error('YouTube uses Google Identity Services and does not exchange authorization codes in the browser');
+  }
+
   const config = getProviderConfig(provider);
   const codeVerifier = localStorage.getItem('code_verifier');
   const redirectUri = localStorage.getItem('oauth_redirect_uri') || getRedirectUri();

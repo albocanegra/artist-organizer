@@ -51,19 +51,22 @@ Each provider keeps its own data — Spotify categories and YouTube categories a
 
 1. Create a project in [Google Cloud Console](https://console.cloud.google.com/)
 2. Enable **YouTube Data API v3**
-3. Configure the **OAuth consent screen**
-4. Create credentials → **OAuth client ID** → **Web application**
-5. Add this **exact** authorized redirect URI (no trailing slash):
+3. Configure the **OAuth consent screen** (User type: **External** is fine for personal use)
+4. While the app is in **Testing** status, add yourself under **Test users** on the consent screen — use the same Google account you sign in with. Without this, Google returns `403: access_denied` for everyone except listed testers.
+5. Create credentials → **OAuth client ID** → **Web application**
+6. Under **Authorized JavaScript origins**, add:
 
    ```
-   https://albocanegra.github.io/spotify-organizer
+   https://albocanegra.github.io
    ```
 
-   The app auto-detects the redirect URI from the current page URL. Google requires a character-for-character match — if you see `redirect_uri_mismatch`, compare this URI to what is listed in [Google Cloud Console → Credentials](https://console.cloud.google.com/apis/credentials).
+   YouTube login uses Google's Identity Services library (popup flow) — no client secret and no redirect URI needed for this flow.
 
-6. Set `YOUTUBE_CLIENT_ID` in `js/config.js`
+7. Set `YOUTUBE_CLIENT_ID` in `js/config.js`
 
 You only need the **Client ID** — do not put the client secret in `config.js`. This app uses PKCE in the browser, same as Spotify.
+
+**Testing vs Production:** For a personal app, keep the consent screen in **Testing** and add your Google account(s) as test users (up to 100). Publishing to **Production** requires Google verification, which is unnecessary for private use.
 
 For local development, add your local URL as a redirect URI too (e.g. `http://localhost:5500`) and open the app from that same origin.
 

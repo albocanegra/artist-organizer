@@ -16,9 +16,9 @@ export const SCOPES = SPOTIFY_SCOPES;
 
 // --- YouTube Music (via YouTube Data API v3) ---
 // Create OAuth credentials at https://console.cloud.google.com/
-// Enable YouTube Data API v3. Redirect URI is auto-detected from the page URL (see auth.js).
-// Register this exact URI in Google Cloud → Credentials → Authorized redirect URIs:
-//   https://albocanegra.github.io/spotify-organizer
+// Enable YouTube Data API v3. Login uses Google Identity Services (no client secret).
+// Register this JavaScript origin in Google Cloud → Credentials → Authorized JavaScript origins:
+//   https://albocanegra.github.io
 export const YOUTUBE_CLIENT_ID = '123145098679-30tna8ocalh7f6mod262dchs6l3i088j.apps.googleusercontent.com';
 export const YOUTUBE_SCOPES = 'https://www.googleapis.com/auth/youtube.force-ssl';
 
@@ -34,7 +34,7 @@ export const ALLOWED_YOUTUBE_USER_IDS = [
 export const ALLOWED_USER_IDS = ALLOWED_SPOTIFY_USER_IDS;
 
 // Keep in sync with APP_CACHE_VERSION in index.html
-export const APP_VERSION = 'v5.0.2';
+export const APP_VERSION = 'v5.0.3';
 
 // Playlist naming conventions (shared across providers)
 export const CATEGORY_PREFIX = '🎸 ArtistOrganizer/';
